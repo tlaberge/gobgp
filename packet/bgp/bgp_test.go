@@ -222,6 +222,109 @@ func Test_RFC5512(t *testing.T) {
 	assert.Equal("2001::1", n4.String())
 }
 
+func Test_PrefixSid(t *testing.T) {
+	assert := assert.New(t)
+
+	// Note that Reserved and Flags fields are set to non-zero
+	// values to ensure we can encode/decode to/from network byte order
+	// correctly. On the wire, Reserved should always be set to zero.
+
+	labelIndexBuf := make([]byte, 7)
+	// Reserved
+	labelIndexBuf[0] = 1
+	// Flags
+	binary.BigEndian.PutUint16(labelIndexBuf[1:3], 2)
+	labelIndex := uint32(0x0001F002)
+	binary.BigEndian.PutUint32(labelIndexBuf[3:7], labelIndex)
+
+	labelIndexValue := &PrefixSidValueLabelIndex{
+		Reserved:   1,
+		Flags:      2,
+		LabelIndex: labelIndex,
+	}
+
+	liBuf, err := labelIndexValue.Serialize()
+	assert.Equal(nil, err)
+	assert.Equal(labelIndexBuf, liBuf)
+
+	IPv6SidBuf := make([]byte, 3)
+
+	// Reserved
+	IPv6SidBuf[0] = 1
+
+	// Flags
+	binary.BigEndian.PutUint16(IPv6SidBuf[1:3], 2)
+
+	IPv6Value := &PrefixSidValueIPv6Sid{
+		Reserved: 1,
+		Flags:    2,
+	}
+
+	v6Buf, err := IPv6Value.Serialize()
+	assert.Equal(nil, err)
+	assert.Equal(IPv6SidBuf, v6Buf)
+
+	OrigSrgbBuf := make([]byte, 8)
+
+	// Flags
+	binary.BigEndian.PutUint16(OrigSrgbBuf[0:2], 1)
+
+	baseBuf := make([]byte, 4)
+	srgbBase := uint32(0x20001)
+	binary.BigEndian.PutUint32(baseBuf[0:4], srgbBase)
+
+	srgbRange := uint32(0x30004)
+	rangeBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(rangeBuf[0:4], srgbRange)
+
+	copy(OrigSrgbBuf[2:5], baseBuf[1:4])
+	copy(OrigSrgbBuf[5:8], rangeBuf[1:4])
+
+	srgbValue := &PrefixSidValueOriginatorSrgb{
+		Flags:     1,
+		SrgbBase:  srgbBase,
+		SrgbRange: srgbRange,
+	}
+
+	srgbBuf, err := srgbValue.Serialize()
+	assert.Equal(nil, err)
+	assert.Equal(OrigSrgbBuf, srgbBuf)
+
+	labelIndexTLV := &PrefixSidTLV{
+		Type:   PREFIX_SID_TLV_TYPE_LABEL_INDEX,
+		Length: 7,
+		Value:  labelIndexValue,
+	}
+
+	IPv6TLV := &PrefixSidTLV{
+		Type:   PREFIX_SID_TLV_TYPE_IPV6_SID,
+		Length: 3,
+		Value:  IPv6Value,
+	}
+
+	srgbTLV := &PrefixSidTLV{
+		Type:   PREFIX_SID_TLV_TYPE_ORIGINATOR_SRGB,
+		Length: 8,
+		Value:  srgbValue,
+	}
+	attr := NewPathAttributePrefixSid([]*PrefixSidTLV{labelIndexTLV, IPv6TLV, srgbTLV})
+
+	buf1, err := attr.Serialize()
+	assert.Equal(nil, err)
+
+	p, err := GetPathAttribute(buf1)
+	assert.Equal(nil, err)
+	assert.NotEqual(nil, p)
+
+	err = p.DecodeFromBytes(buf1)
+	assert.Equal(nil, err)
+
+	buf2, err := p.Serialize()
+	assert.Equal(nil, err)
+	assert.Equal(buf1, buf2)
+
+}
+
 func Test_ASLen(t *testing.T) {
 	assert := assert.New(t)
 

@@ -189,6 +189,14 @@ const (
 	ENCAP_SUBTLV_TYPE_COLOR         EncapSubTLVType = 4
 )
 
+type PrefixSidTLVType uint8
+
+const (
+	PREFIX_SID_TLV_TYPE_LABEL_INDEX     PrefixSidTLVType = 1
+	PREFIX_SID_TLV_TYPE_IPV6_SID        PrefixSidTLVType = 2
+	PREFIX_SID_TLV_TYPE_ORIGINATOR_SRGB PrefixSidTLVType = 3
+)
+
 const (
 	_ = iota
 	BGP_MSG_OPEN
@@ -3725,6 +3733,7 @@ const (
 	_
 	BGP_ATTR_TYPE_AIGP                        // = 26
 	BGP_ATTR_TYPE_LARGE_COMMUNITY BGPAttrType = 30
+	BGP_ATTR_TYPE_PREFIX_SID      BGPAttrType = 40
 )
 
 // NOTIFICATION Error Code  RFC 4271 4.5.
@@ -3911,6 +3920,7 @@ var PathAttrFlags map[BGPAttrType]BGPAttrFlag = map[BGPAttrType]BGPAttrFlag{
 	BGP_ATTR_TYPE_TUNNEL_ENCAP:         BGP_ATTR_FLAG_TRANSITIVE | BGP_ATTR_FLAG_OPTIONAL,
 	BGP_ATTR_TYPE_AIGP:                 BGP_ATTR_FLAG_OPTIONAL,
 	BGP_ATTR_TYPE_LARGE_COMMUNITY:      BGP_ATTR_FLAG_TRANSITIVE | BGP_ATTR_FLAG_OPTIONAL,
+	BGP_ATTR_TYPE_PREFIX_SID:           BGP_ATTR_FLAG_TRANSITIVE | BGP_ATTR_FLAG_OPTIONAL,
 }
 
 type PathAttributeInterface interface {
@@ -6476,6 +6486,222 @@ func NewPathAttributeTunnelEncap(value []*TunnelEncapTLV) *PathAttributeTunnelEn
 	}
 }
 
+type PrefixSidValue interface {
+	Serialize() ([]byte, error)
+	String() string
+}
+
+type PrefixSidValueLabelIndex struct {
+	Reserved   uint8
+	Flags      uint16
+	LabelIndex uint32
+}
+
+func (t *PrefixSidValueLabelIndex) Serialize() ([]byte, error) {
+	buf := make([]byte, 7)
+	buf[0] = t.Reserved
+	binary.BigEndian.PutUint16(buf[1:3], t.Flags)
+	binary.BigEndian.PutUint32(buf[3:7], t.LabelIndex)
+	return buf, nil
+}
+
+func (t *PrefixSidValueLabelIndex) String() string {
+	return fmt.Sprintf("{Index: %d}", t.LabelIndex)
+}
+
+type PrefixSidValueIPv6Sid struct {
+	Reserved uint8
+	Flags    uint16
+}
+
+func (t *PrefixSidValueIPv6Sid) Serialize() ([]byte, error) {
+	buf := make([]byte, 3)
+	buf[0] = t.Reserved
+	binary.BigEndian.PutUint16(buf[1:3], t.Flags)
+	return buf, nil
+}
+
+func (t *PrefixSidValueIPv6Sid) String() string {
+	return fmt.Sprintf("{Flags: %d}", t.Flags)
+}
+
+// Really, want an array of (base,range)'s
+type PrefixSidValueOriginatorSrgb struct {
+	Flags     uint16
+	SrgbBase  uint32
+	SrgbRange uint32
+}
+
+func (t *PrefixSidValueOriginatorSrgb) Serialize() ([]byte, error) {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint16(buf[0:2], t.Flags)
+	baseBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(baseBuf, t.SrgbBase)
+	copy(buf[2:5], baseBuf[1:4])
+	rangeBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(rangeBuf, t.SrgbRange)
+	copy(buf[5:8], rangeBuf[1:4])
+	return buf, nil
+}
+
+func (t *PrefixSidValueOriginatorSrgb) String() string {
+	return fmt.Sprintf("{Base %d, Range %d}", t.SrgbBase, t.SrgbRange)
+}
+
+type PrefixSidTLV struct {
+	Type   PrefixSidTLVType
+	Length int
+	Value  PrefixSidValue
+}
+
+// Caller sets up Type and Length, this just decodes and populates Value.
+func (t *PrefixSidTLV) DecodeFromBytes(data []byte) error {
+	curr := 0
+	if len(data) < 3 {
+		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("Not enough PrefixSidTLV header bytes: %d\n", len(data)))
+	}
+	typ := PrefixSidTLVType(data[curr])
+	l := binary.BigEndian.Uint16(data[curr+1 : curr+3])
+
+	curr += 3
+	switch typ {
+	case PREFIX_SID_TLV_TYPE_LABEL_INDEX:
+		if l != 7 {
+			return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("Label Index length is not 7: %d\n", l))
+		}
+		if len(data) < curr+7 {
+			return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, "Not all PrefixSidTLV bytes available")
+		}
+		reserved := data[curr]
+		flags := binary.BigEndian.Uint16(data[curr+1 : curr+3])
+		labelIndex := binary.BigEndian.Uint32(data[curr+3 : curr+7])
+		t.Value = &PrefixSidValueLabelIndex{
+			LabelIndex: labelIndex,
+			Reserved:   reserved,
+			Flags:      flags,
+		}
+	case PREFIX_SID_TLV_TYPE_IPV6_SID:
+		if l != 3 {
+			return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, "PrefixSidIPv6Sid length is not 3")
+		}
+		reserved := data[curr]
+		flags := binary.BigEndian.Uint16(data[curr+1 : curr+3])
+		t.Value = &PrefixSidValueIPv6Sid{
+			Reserved: reserved,
+			Flags:    flags,
+		}
+	case PREFIX_SID_TLV_TYPE_ORIGINATOR_SRGB:
+		if l != 8 {
+			return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, "PrefixSidOriginatorSrgb length is not 8")
+		}
+		flags := binary.BigEndian.Uint16(data[curr : curr+2])
+
+		baseArray := make([]byte, 4)
+		baseArray[0] = 0
+		copy(baseArray[1:4], data[curr+2:curr+5])
+		srgbBase := binary.BigEndian.Uint32(baseArray)
+
+		rangeArray := make([]byte, 4)
+		rangeArray[0] = 0
+		copy(rangeArray[1:4], data[curr+5:curr+8])
+		srgbRange := binary.BigEndian.Uint32(rangeArray)
+
+		t.Value = &PrefixSidValueOriginatorSrgb{
+			Flags:     flags,
+			SrgbBase:  srgbBase,
+			SrgbRange: srgbRange,
+		}
+	default:
+		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("Unknown PrefixSID TLV: %d\n", typ))
+	}
+	return nil
+}
+
+func (p *PrefixSidTLV) Serialize() ([]byte, error) {
+	buf := make([]byte, 3)
+	valueBuf, err := p.Value.Serialize()
+	if err != nil {
+		return nil, err
+	}
+	buf = append(buf, valueBuf...)
+	buf[0] = uint8(p.Type)
+
+	p.Length = len(buf) - 3
+	binary.BigEndian.PutUint16(buf[1:3], uint16(p.Length))
+	return buf, nil
+}
+
+type PathAttributePrefixSid struct {
+	PathAttribute
+	Value []*PrefixSidTLV
+}
+
+func (p *PathAttributePrefixSid) String() string {
+	var valueStrings = ""
+	for _, v := range p.Value {
+		valueStrings += v.Value.String()
+	}
+	return fmt.Sprintf("{Prefix SID: %s}", valueStrings)
+}
+
+// GetPathAttribute() figures out what type a path attribute is by peeking
+// at a byte array. It returns a struct of the proper type, which is
+// then populated by that type's DecodeFromBytes method.
+func (p *PathAttributePrefixSid) DecodeFromBytes(data []byte) error {
+	err := p.PathAttribute.DecodeFromBytes(data)
+	if err != nil {
+		return err
+	}
+	curr := 0
+	for {
+		if len(p.PathAttribute.Value) < curr+3 {
+			break
+		}
+		t := p.PathAttribute.Value[curr]
+		tlvType := PrefixSidTLVType(t)
+		l := int(binary.BigEndian.Uint16(p.PathAttribute.Value[curr+1 : curr+3]))
+		if len(p.PathAttribute.Value) < curr+3+l {
+			return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("Not all PrefixSidTLV bytes available. %d < %d\n", len(p.PathAttribute.Value), curr+3+l))
+		}
+		v := p.PathAttribute.Value[curr : curr+3+l]
+		tlv := &PrefixSidTLV{
+			Type:   tlvType,
+			Length: l,
+		}
+		err = tlv.DecodeFromBytes(v)
+		if err != nil {
+			return err
+		}
+		p.Value = append(p.Value, tlv)
+		curr += 3 + l
+	}
+	return nil
+}
+
+func (p *PathAttributePrefixSid) Serialize() ([]byte, error) {
+	buf := make([]byte, 0)
+	for _, t := range p.Value {
+		bbuf, err := t.Serialize()
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, bbuf...)
+	}
+	p.PathAttribute.Value = buf
+	return p.PathAttribute.Serialize()
+}
+
+func NewPathAttributePrefixSid(value []*PrefixSidTLV) *PathAttributePrefixSid {
+	t := BGP_ATTR_TYPE_PREFIX_SID
+	return &PathAttributePrefixSid{
+		PathAttribute: PathAttribute{
+			Flags: PathAttrFlags[t],
+			Type:  t,
+		},
+		Value: value,
+	}
+}
+
 type PmsiTunnelIDInterface interface {
 	Serialize() ([]byte, error)
 	String() string
@@ -6938,6 +7164,8 @@ func GetPathAttribute(data []byte) (PathAttributeInterface, error) {
 		return &PathAttributeAigp{}, nil
 	case BGP_ATTR_TYPE_LARGE_COMMUNITY:
 		return &PathAttributeLargeCommunities{}, nil
+	case BGP_ATTR_TYPE_PREFIX_SID:
+		return &PathAttributePrefixSid{}, nil
 	}
 	return &PathAttributeUnknown{}, nil
 }
@@ -7445,3 +7673,4 @@ func FlatUpdate(f1, f2 map[string]string) error {
 		return nil
 	}
 }
+

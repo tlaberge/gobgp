@@ -529,6 +529,30 @@ func extractNexthop(rf bgp.RouteFamily, args []string) ([]string, string, error)
 	return args, nexthop, nil
 }
 
+func extractSid(args []string ) ([]string, bgp.PathAttributeInterface, error) {
+	var sid int
+	for idx, arg := range args {
+		if arg == "sid" && len(args) > idx + 1 {
+			sid, _ = strconv.Atoi(args[idx+1])
+			args = append(args[:idx], args[idx+2:]...)
+			labelIndexValue := &bgp.PrefixSidValueLabelIndex {
+				Reserved:    0,
+				Flags:       0,
+				LabelIndex:	uint32(sid),
+			}
+			labelIndexTLV := & bgp.PrefixSidTLV {
+				Type: bgp.PREFIX_SID_TLV_TYPE_LABEL_INDEX,
+				Length: 7,
+				Value: labelIndexValue,
+			}
+
+			sidAttr := bgp.NewPathAttributePrefixSid([]*bgp.PrefixSidTLV{labelIndexTLV})
+			return args, sidAttr, nil
+		}
+	}
+	return args, nil, nil
+}
+
 func extractLocalPref(args []string) ([]string, bgp.PathAttributeInterface, error) {
 	for idx, arg := range args {
 		if arg == "local-pref" && len(args) > (idx+1) {
@@ -674,6 +698,7 @@ func ParsePath(rf bgp.RouteFamily, args []string) (*api.Path, error) {
 		extractAigp,
 		extractAggregator,
 		extractLargeCommunity,
+		extractSid,
 	}
 
 	for _, fn := range fns {
