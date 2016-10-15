@@ -225,9 +225,40 @@ func Test_RFC5512(t *testing.T) {
 func Test_PrefixSid(t *testing.T) {
 	assert := assert.New(t)
 
+	// Test passing not enough bytes.
+	smallBuf := make([]byte, 1)
+
+	liv := &PrefixSidValueLabelIndex{}
+	err := liv.DecodeFromBytes(7, smallBuf)
+	assert.NotEqual(nil, err)
+
+	v6v := &PrefixSidValueIPv6Sid{}
+	err = v6v.DecodeFromBytes(3, smallBuf)
+	assert.NotEqual(nil, err)
+
+	osv := &PrefixSidValueOriginatorSrgb{}
+	err = osv.DecodeFromBytes(8, smallBuf)
+	assert.NotEqual(nil, err)
+
+	// Test passing an incorrect length.
+	bigBuf := make([]byte, 10)
+	liv = &PrefixSidValueLabelIndex{}
+	err = liv.DecodeFromBytes(0, bigBuf)
+	assert.NotEqual(nil, err)
+
+	v6v = &PrefixSidValueIPv6Sid{}
+	err = v6v.DecodeFromBytes(0, bigBuf)
+	assert.NotEqual(nil, err)
+
+	osv = &PrefixSidValueOriginatorSrgb{}
+	err = osv.DecodeFromBytes(0, bigBuf)
+	assert.NotEqual(nil, err)
+
 	// Note that Reserved and Flags fields are set to non-zero
 	// values to ensure we can encode/decode to/from network byte order
 	// correctly. On the wire, Reserved should always be set to zero.
+
+	// Test Decode/Serialize for all values
 
 	labelIndexBuf := make([]byte, 7)
 	// Reserved
@@ -237,11 +268,12 @@ func Test_PrefixSid(t *testing.T) {
 	labelIndex := uint32(0x0001F002)
 	binary.BigEndian.PutUint32(labelIndexBuf[3:7], labelIndex)
 
-	labelIndexValue := &PrefixSidValueLabelIndex{
-		Reserved:   1,
-		Flags:      2,
-		LabelIndex: labelIndex,
-	}
+	labelIndexValue := &PrefixSidValueLabelIndex{}
+	err = labelIndexValue.DecodeFromBytes(7, labelIndexBuf)
+	assert.Equal(nil, err)
+	assert.Equal((uint8)(1), labelIndexValue.Reserved)
+	assert.Equal(labelIndex, labelIndexValue.LabelIndex)
+	assert.Equal((uint16)(2), labelIndexValue.Flags)
 
 	liBuf, err := labelIndexValue.Serialize()
 	assert.Equal(nil, err)
@@ -255,10 +287,11 @@ func Test_PrefixSid(t *testing.T) {
 	// Flags
 	binary.BigEndian.PutUint16(IPv6SidBuf[1:3], 2)
 
-	IPv6Value := &PrefixSidValueIPv6Sid{
-		Reserved: 1,
-		Flags:    2,
-	}
+	IPv6Value := &PrefixSidValueIPv6Sid{}
+	err = IPv6Value.DecodeFromBytes(3, IPv6SidBuf)
+	assert.Equal(nil, err)
+	assert.Equal((uint8)(1), IPv6Value.Reserved)
+	assert.Equal((uint16)(2), IPv6Value.Flags)
 
 	v6Buf, err := IPv6Value.Serialize()
 	assert.Equal(nil, err)
@@ -280,11 +313,12 @@ func Test_PrefixSid(t *testing.T) {
 	copy(OrigSrgbBuf[2:5], baseBuf[1:4])
 	copy(OrigSrgbBuf[5:8], rangeBuf[1:4])
 
-	srgbValue := &PrefixSidValueOriginatorSrgb{
-		Flags:     1,
-		SrgbBase:  srgbBase,
-		SrgbRange: srgbRange,
-	}
+	srgbValue := &PrefixSidValueOriginatorSrgb{}
+	err = srgbValue.DecodeFromBytes(8, OrigSrgbBuf)
+	assert.Equal(nil, err)
+	assert.Equal((uint16)(1), srgbValue.Flags)
+	assert.Equal((uint32)(0x20001), srgbValue.SrgbBase)
+	assert.Equal((uint32)(0x30004), srgbValue.SrgbRange)
 
 	srgbBuf, err := srgbValue.Serialize()
 	assert.Equal(nil, err)
@@ -322,7 +356,6 @@ func Test_PrefixSid(t *testing.T) {
 	buf2, err := p.Serialize()
 	assert.Equal(nil, err)
 	assert.Equal(buf1, buf2)
-
 }
 
 func Test_ASLen(t *testing.T) {
