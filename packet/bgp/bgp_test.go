@@ -258,8 +258,9 @@ func Test_PrefixSid(t *testing.T) {
 	// values to ensure we can encode/decode to/from network byte order
 	// correctly. On the wire, Reserved should always be set to zero.
 
-	// Test Decode/Serialize for all values
+	// Test Decode/Serialize for all PrefixSidValue types
 
+	// PrefixSidValueLabelIndex
 	labelIndexBuf := make([]byte, 7)
 	// Reserved
 	labelIndexBuf[0] = 1
@@ -279,6 +280,7 @@ func Test_PrefixSid(t *testing.T) {
 	assert.Equal(nil, err)
 	assert.Equal(labelIndexBuf, liBuf)
 
+	// PrefixSidValueIPv6Sid
 	IPv6SidBuf := make([]byte, 3)
 
 	// Reserved
@@ -297,6 +299,7 @@ func Test_PrefixSid(t *testing.T) {
 	assert.Equal(nil, err)
 	assert.Equal(IPv6SidBuf, v6Buf)
 
+	// PrefixSidValueOriginatorSrgb
 	OrigSrgbBuf := make([]byte, 8)
 
 	// Flags
@@ -324,6 +327,7 @@ func Test_PrefixSid(t *testing.T) {
 	assert.Equal(nil, err)
 	assert.Equal(OrigSrgbBuf, srgbBuf)
 
+	// Construct PrefixSidTLV's for each type of Value
 	labelIndexTLV := &PrefixSidTLV{
 		Type:   PREFIX_SID_TLV_TYPE_LABEL_INDEX,
 		Length: 7,
@@ -341,6 +345,8 @@ func Test_PrefixSid(t *testing.T) {
 		Length: 8,
 		Value:  srgbValue,
 	}
+
+	// Construct a PrefixSidPathAttribute
 	attr := NewPathAttributePrefixSid([]*PrefixSidTLV{labelIndexTLV, IPv6TLV, srgbTLV})
 
 	buf1, err := attr.Serialize()
@@ -352,6 +358,7 @@ func Test_PrefixSid(t *testing.T) {
 
 	err = p.DecodeFromBytes(buf1)
 	assert.Equal(nil, err)
+	assert.Equal(attr, p)
 
 	buf2, err := p.Serialize()
 	assert.Equal(nil, err)

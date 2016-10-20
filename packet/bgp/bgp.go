@@ -6498,26 +6498,31 @@ type PrefixSidValueLabelIndex struct {
 	LabelIndex uint32
 }
 
-func (t *PrefixSidValueLabelIndex) Serialize() ([]byte, error) {
-	buf := make([]byte, 7)
-	buf[0] = t.Reserved
-	binary.BigEndian.PutUint16(buf[1:3], t.Flags)
-	binary.BigEndian.PutUint32(buf[3:7], t.LabelIndex)
-	return buf, nil
-}
-
 func (t *PrefixSidValueLabelIndex) DecodeFromBytes(length uint16, data []byte) error {
 	if length != 7 {
 		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("PrefixSidValueLabelIndex length is %d != 7.\n", len(data)))
 
 	}
+
 	if len(data) < 7 {
 		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("Not all PrefixSidValueLabelIndex bytes available, need 7 have %d.\n", len(data)))
 	}
+
 	t.Reserved = data[0]
 	t.Flags = binary.BigEndian.Uint16(data[1:3])
 	t.LabelIndex = binary.BigEndian.Uint32(data[3:7])
+
 	return nil
+}
+
+func (t *PrefixSidValueLabelIndex) Serialize() ([]byte, error) {
+	buf := make([]byte, 7)
+
+	buf[0] = t.Reserved
+	binary.BigEndian.PutUint16(buf[1:3], t.Flags)
+	binary.BigEndian.PutUint32(buf[3:7], t.LabelIndex)
+
+	return buf, nil
 }
 
 func (t *PrefixSidValueLabelIndex) String() string {
@@ -6527,6 +6532,22 @@ func (t *PrefixSidValueLabelIndex) String() string {
 type PrefixSidValueIPv6Sid struct {
 	Reserved uint8
 	Flags    uint16
+}
+
+func (t *PrefixSidValueIPv6Sid) DecodeFromBytes(length uint16, data []byte) error {
+	if length != 3 {
+		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("PrefixSidValueIPv6Sid length is %d != 3.\n", len(data)))
+
+	}
+
+	if len(data) < 3 {
+		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("Not all PrefixSidValueIPv6 bytes available, need 3 have %d.\n", len(data)))
+	}
+
+	t.Reserved = data[0]
+	t.Flags = binary.BigEndian.Uint16(data[1:3])
+
+	return nil
 }
 
 func (t *PrefixSidValueIPv6Sid) Serialize() ([]byte, error) {
@@ -6540,36 +6561,11 @@ func (t *PrefixSidValueIPv6Sid) String() string {
 	return fmt.Sprintf("{Flags: %d}", t.Flags)
 }
 
-func (t *PrefixSidValueIPv6Sid) DecodeFromBytes(length uint16, data []byte) error {
-	if length != 3 {
-		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("PrefixSidValueIPv6Sid length is %d != 3.\n", len(data)))
-
-	}
-	if len(data) < 3 {
-		return NewMessageError(BGP_ERROR_UPDATE_MESSAGE_ERROR, BGP_ERROR_SUB_MALFORMED_ATTRIBUTE_LIST, nil, fmt.Sprintf("Not all PrefixSidValueIPv6 bytes available, need 3 have %d.\n", len(data)))
-	}
-	t.Reserved = data[0]
-	t.Flags = binary.BigEndian.Uint16(data[1:3])
-	return nil
-}
-
 // Really, want an array of (base,range)'s
 type PrefixSidValueOriginatorSrgb struct {
 	Flags     uint16
 	SrgbBase  uint32
 	SrgbRange uint32
-}
-
-func (t *PrefixSidValueOriginatorSrgb) Serialize() ([]byte, error) {
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint16(buf[0:2], t.Flags)
-	baseBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(baseBuf, t.SrgbBase)
-	copy(buf[2:5], baseBuf[1:4])
-	rangeBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(rangeBuf, t.SrgbRange)
-	copy(buf[5:8], rangeBuf[1:4])
-	return buf, nil
 }
 
 func (t *PrefixSidValueOriginatorSrgb) DecodeFromBytes(length uint16, data []byte) error {
@@ -6594,6 +6590,21 @@ func (t *PrefixSidValueOriginatorSrgb) DecodeFromBytes(length uint16, data []byt
 	t.SrgbRange = binary.BigEndian.Uint32(rangeArray)
 
 	return nil
+}
+
+func (t *PrefixSidValueOriginatorSrgb) Serialize() ([]byte, error) {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint16(buf[0:2], t.Flags)
+
+	baseBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(baseBuf, t.SrgbBase)
+	copy(buf[2:5], baseBuf[1:4])
+
+	rangeBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(rangeBuf, t.SrgbRange)
+	copy(buf[5:8], rangeBuf[1:4])
+
+	return buf, nil
 }
 
 func (t *PrefixSidValueOriginatorSrgb) String() string {
@@ -6644,17 +6655,13 @@ func (p *PrefixSidTLV) Serialize() ([]byte, error) {
 	return buf, nil
 }
 
+func (p *PrefixSidTLV) String() string {
+    return fmt.Sprintf("[T:%d L:%d V:%s]",p.Type, p.Length,  p.Value.String())
+}
+
 type PathAttributePrefixSid struct {
 	PathAttribute
 	Value []*PrefixSidTLV
-}
-
-func (p *PathAttributePrefixSid) String() string {
-	var valueStrings = ""
-	for _, v := range p.Value {
-		valueStrings += v.Value.String()
-	}
-	return fmt.Sprintf("{Prefix SID: %s}", valueStrings)
 }
 
 // GetPathAttribute() figures out what type a path attribute is by peeking
@@ -6702,6 +6709,16 @@ func (p *PathAttributePrefixSid) Serialize() ([]byte, error) {
 	}
 	p.PathAttribute.Value = buf
 	return p.PathAttribute.Serialize()
+}
+
+func (p *PathAttributePrefixSid) String() string {
+	ret := p.PathAttribute.String()
+	tlvs  := ""
+    for _, t  := range p.Value {
+		tlvs += fmt.Sprintf("%s", t.String())
+	}
+
+	return fmt.Sprintf("%s[%s]", ret, tlvs)
 }
 
 func NewPathAttributePrefixSid(value []*PrefixSidTLV) *PathAttributePrefixSid {
